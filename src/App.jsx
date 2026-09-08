@@ -1,193 +1,126 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import * as THREE from 'three';
-import { useStore } from './store';
+import { useEffect } from "react";
+import Board from "./Board";
+import TopBar from "./components/TopBar";
+import Toolbar from "./components/Toolbar";
+import Inspector from "./components/Inspector";
+import { useBoard } from "./store";
+import { sound } from "./sound";
+import { Icon } from "./components/icons";
 
-const TAG_COLORS = {
-  idea: { hex: 0x22c55e },
-  question: { hex: 0xf97316 },
-  decision: { hex: 0x8b5cf6 },
-  note: { hex: 0x38bdf8 },
-};
+const KEY = "brain-board:v1";
+function persist(s) {
+  try {
+    localStorage.setItem(KEY, JSON.stringify({ elements: s.elements, links: s.links }));
+  } catch {
+    /* ignore */
+  }
+}
 
-function App() {
-  const mountRef = useRef(null);
-  const [showTagPalette, setShowTagPalette] = useState(false);
+export default function App() {
+  const mode = useBoard((s) => s.mode);
+  const linkFrom = useBoard((s) => s.linkFromId);
 
+  // sound enablement follows the store
+  const soundOn = useBoard((s) => s.soundOn);
   useEffect(() => {
-    if (!mountRef.current) return;
+    sound.setEnabled(soundOn);
+  }, [soundOn]);
 
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(55, mountRef.current.clientWidth / mountRef.current.clientHeight, 0.1, 5000);
-    camera.position.set(15, 15, 20);
-    camera.lookAt(0, 0, 0);
-
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
-    mountRef.current.appendChild(renderer.domElement);
-
-    const sceneMeshes = new Map();
-
-    const updateElements = useCallback(() => {
-      elements.forEach((el) => {
-        const existing = sceneMeshes.get(el.id);
-        const tagColors = TAG_COLORS[el.tag] || TAG_COLORS.note;
-
-        if (!existing.mesh) {
-          const geometry = new THREE.BoxGeometry(1, 1, 1);
-          const material = new THREE.MeshStandardMaterial({ color: tagColors.hex });
-          const mesh = new THREE.Mesh(geometry, material);
-          const pivot = new THREE.Object3D();
-          pivot.add(mesh);
-          mesh.position.set(el.x, el.y, el.z);
-          scene.add(pivot);
-          sceneMeshes.set(el.id, { mesh, pivot });
-        } else {
-          const { mesh } = existing;
-          mesh.material.color.setHex(tagColors.hex);
-          mesh.position.set(el.x, el.y, el.z);
-        }
-      });
-
-      sceneMeshes.forEach((val, id) => {
-        if (!elements.find((e) => e.id === id)) {
-          scene.remove(val.pivot);
-          val.pivot.traverse((obj) => {
-            obj.geometry?.dispose();
-            obj.material?.dispose();
-          });
-          val.pivot.clear();
-          val.pivot.dispose();
-          sceneMeshes.delete(id);
-        }
-      });
-    }, [elements]);
-
-    updateElements();
-
-    const onMouseDown = (e) => {
-      e.preventDefault();
-      if (e.button !== 0) return;
-      const rect = renderer.domElement.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / rect.width;
-      const y = 1 - (e.clientY - rect.top) / rect.height;
-      const vector = new THREE.Vector2(x, y);
-      const ray = new THREE.Raycaster();
-      ray.setFromCamera(vector, camera);
-      const intersects = ray.intersectObjects(scene.children.flat(), true);
-
-      if (intersects.length > 0) {
-        const pivot = intersects[0].object.parent.parent;
-        const id = Array.from(sceneMeshes.keys()).find((k) => sceneMeshes.get(k).pivot === pivot);
-        if (id) {
-          useStore.getState().selectElement(id);
-          setContextMenu({ x: e.clientX, y: e.clientY, open: true });
-        }
-      } else {
-        useStore.getState().deselectElement();
-        setContextMenu(null);
-      }
-    };
-
-    const onMouseUp = () => {
-      useStore.getState().isDragging && setDragging(false);
-      setContextMenu(null);
-    };
-
-    let dragging = false;
-
-    const onMouseDownDrag = (e) => {
-      e.preventDefault();
-      dragging = true;
-      useStore.getState().setIsDragging(true);
-    };
-
-    const onDrag = (e) => {
-      if (!dragging && !isDragging) return;
-      e.preventDefault();
-      const rect = renderer.domElement.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / rect.width;
-      const y = 1 - (e.clientY - rect.top) / rect.height;
-      const vector = new THREE.Vector2(x, y);
-      const ray = new THREE.Raycaster();
-      ray.setFromCamera(vector, camera);
-      const intersects = ray.intersectObjects(scene.children.flat(), true);
-
-      if (intersects.length > 0) {
-        const pivot = intersects[0].object.parent.parent;
-        const { mesh } = intersects[0];
-        const id = Array.from(sceneMeshes.keys()).find((k) => sceneMeshes.get(k).mesh === mesh);
-        if (id) {
-          useStore.getState().setElementPosition(id, {
-            x: mesh.position.x,
-            y: mesh.position.y,
-            z: mesh.position.z,
-          });
-        }
-      }
-    };
-
-    renderer.domElement.addEventListener('pointerdown', onMouseDown);
-    window.addEventListener('pointerup', onMouseUp);
-    renderer.domElement.addEventListener('pointerdown', onMouseDownDrag);
-
-    window.addEventListener('resize', () => {
-      camera.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
+  // autosave elements + links
+  useEffect(() => {
+    const unsub = useBoard.subscribe((s, prev) => {
+      if (s.elements !== prev.elements || s.links !== prev.links) persist(s);
     });
+    return unsub;
+  }, []);
 
-    const animate = useCallback(() => {
-      requestAnimationFrame(animate);
-      renderer.render(scene, camera);
-    }, []);
-
-    animate();
-
-    return () => {
-      renderer.domElement.removeEventListener('pointerdown', onMouseDown);
-      window.removeEventListener('pointerup', onMouseUp);
-      renderer.domElement.removeEventListener('pointerdown', onMouseDownDrag);
-      scene.traverse((obj) => {
-        obj.geometry?.dispose();
-        obj.material?.dispose();
-      });
-      if (mountRef.current && renderer.domElement) {
-        mountRef.current.removeChild(renderer.domElement);
+  // keyboard shortcuts
+  useEffect(() => {
+    const onKey = (e) => {
+      const t = (e.target && e.target.tagName) || "";
+      if (t === "INPUT" || t === "TEXTAREA") return;
+      const b = useBoard.getState();
+      switch (e.key) {
+        case "n":
+        case "N":
+          b.addElement();
+          sound.add();
+          break;
+        case "l":
+        case "L":
+          b.toggleMode();
+          sound.toggle();
+          break;
+        case "Delete":
+        case "Backspace":
+          if (b.selectedId) {
+            b.removeElement(b.selectedId);
+            sound.remove();
+          }
+          break;
+        case "Escape":
+          if (b.mode === "link" && b.linkFromId) b.setMode("link");
+          else b.select(null);
+          break;
+        case "f":
+        case "F":
+          if (b.selectedId) {
+            b.focus(b.selectedId);
+            sound.focus();
+          }
+          break;
+        case "r":
+        case "R":
+          b.resetCamera();
+          break;
+        case "s":
+        case "S":
+          b.toggleSound();
+          break;
+        case "t":
+        case "T":
+          b.toggleTheme();
+          break;
+        default:
+          return;
       }
     };
-  }, [camera]);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden select-none">
-      <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
+    <div className="w-full h-full relative overflow-hidden">
+      <Board />
 
-      {showTagPalette && (
-        <div className="absolute top-20 right-20 bg-slate-900/95 backdrop-blur-xl border border-slate-700/50 rounded-xl p-2 flex gap-2">
-          {Object.entries(TAG_COLORS).map(([tag, { hex }]) => (
-            <button key={tag} onClick={() => { if (selectedElementId) useStore.getState().setElements(elements.map(e => e.id === selectedElementId ? { ...e, tag } : e)); setShowTagPalette(false); }}
-              className="w-8 h-8 rounded-lg" style={{ backgroundColor: hex }} title={tag} />
-          ))}
-        </div>
-      )}
-
-      {contextMenu && (
-        <div className="fixed z-50 bg-slate-900/95 backdrop-blur-xl border border-slate-700/50 rounded-xl p-2 min-w-[160px]" style={{ left: contextMenu.x, top: contextMenu.y, transform: 'translate(-50%, -50%)' }}>
-          <div className="flex flex-col gap-1">
-            <button onClick={() => { setShowTagPalette(true); setContextMenu(null); }} className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-sm">Edit Tag</button>
-            <button onClick={() => { if (selectedElementId) { deleteElement(selectedElementId); useStore.getState().deselectElement(); } setContextMenu(null); }} className="px-3 py-2 bg-red-500/10 hover:bg-red-500/20 text-sm">Delete</button>
+      {/* link-mode banner */}
+      {mode === "link" && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 pointer-events-none bb-fade">
+          <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-amber-500/15 border border-amber-400/40 text-amber-200 text-sm backdrop-blur-md">
+            <Icon.Link />
+            {linkFrom ? "Now click another idea to connect" : "Link mode — click two ideas to connect"}
+            <button
+              onClick={() => useBoard.getState().setMode("move")}
+              className="ml-1 px-2 py-0.5 rounded-full bg-amber-400/20 hover:bg-amber-400/30 text-amber-100 text-xs"
+            >
+              esc
+            </button>
           </div>
         </div>
       )}
 
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 px-6 py-3 bg-slate-900/90 backdrop-blur-xl border border-slate-700/50 rounded-2xl">
-        <button onClick={() => addElement({ x: 0, y: 0, z: 0, tag: 'note' })} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl">New</button>
-        <div className="w-px h-8 bg-slate-700/50" />
-        <button onClick={() => setShowTagPalette(!showTagPalette)} className={'px-4 py-2 rounded-xl ' + (showTagPalette ? 'bg-sky-500 text-white' : 'bg-slate-800 text-slate-300')}>Tag</button>
-        <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl">{theme === 'dark' ? 'Light' : 'Dark'}</button>
-        <label className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl cursor-pointer"><span>Import</span><input type="file" accept=".json" onChange={(e) => { const file = e.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => { try { const data = JSON.parse(ev.target.result); if (Array.isArray(data)) setElements(data); } catch {} }; reader.readAsText(file); }} className="hidden" /></label>
+      <TopBar />
+      <Inspector />
+      <Toolbar />
+
+      {/* shortcuts hint */}
+      <div className="absolute left-4 bottom-6 pointer-events-none">
+        <div className="bg-slate-900/50 backdrop-blur border border-white/10 rounded-xl px-3.5 py-2.5 text-[11px] text-slate-400 leading-relaxed">
+          <div><b className="text-slate-200">N</b> new idea &nbsp; <b className="text-slate-200">L</b> link mode &nbsp; <b className="text-slate-200">R</b> reset view</div>
+          <div className="mt-0.5"><b className="text-slate-200">Del</b> delete &nbsp; <b className="text-slate-200">F</b> focus &nbsp; double-click focuses</div>
+          <div className="mt-0.5 text-slate-500">drag to move • right-drag orbit • scroll zoom</div>
+        </div>
       </div>
     </div>
   );
 }
-
-export default App;

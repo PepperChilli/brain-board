@@ -1,10 +1,78 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
 
 body {
-  margin: 0;
   overflow: hidden;
-  background-color: #0f172a;
-  color: #e2e8f0;
+  background: #05070f;
+  color: #e5e7eb;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+#root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+canvas {
+  display: block;
+}
+
+@keyframes bb-fade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes bb-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes bb-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.bb-fade {
+  animation: bb-fade 0.25s ease-out both;
+}
+.bb-pop {
+  animation: bb-pop 0.16s ease-out both;
+}
+.bb-slide-in {
+  animation: bb-slide-in 0.22s ease-out both;
+}
+
+.bb-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.bb-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+}
+.bb-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }
